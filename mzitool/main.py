@@ -27,13 +27,16 @@ win = QSplitter()
 win.resize(1000, 500)
 
 ptree = ParameterTree(showHeader=False)
-params = Parameter.create(name='Test', type='group')
+params = Parameter.create(name='Get Frequency Axis', type='group')
+params_resonance = Parameter.create(name='Get Resonance Info', type='group')
 file_in = Parameter.create(name='Choose File', type='file')
 ptree.addParameters(file_in)
 ptree.addParameters(params)
+ptree.addParameters(params_resonance)
 ptree.resize(400,500)
 
 interactor = Interactor(parent=params, runOptions=RunOptions.ON_ACTION)
+interactor_resonance = Interactor(parent=params_resonance, runOptions=RunOptions.ON_ACTION)
 
 win.addWidget(plot_widget)
 win.addWidget(ptree)
@@ -62,6 +65,45 @@ transmission_peaks_freq = []
 transmission_peaks_Q = []
 mzi_peak_times = []
 mzi_peak_freq = []
+
+sub_mzi = plot_widget.addLayout()
+sub_mzi.addLabel('MZI')
+sub_mzi.nextRow()
+
+plot_items = [pg.PlotItem(), pg.PlotItem()]
+sub_mzi.addItem(plot_items[0])
+
+plot_widget.nextRow()
+
+sub_trans = plot_widget.addLayout()
+sub_trans.addLabel('Transmission')
+sub_trans.nextRow()
+sub_trans.addItem(plot_items[1])
+
+for ind, plot_item in enumerate(plot_items):
+    view: pg.ViewBox = plot_item.getViewBox()
+    view.setMouseEnabled(y=False)
+#    view.setMouseMode(view.RectMode)
+    plot_item.setDownsampling(auto=True, mode='peak')
+    plot_item.setClipToView(True)
+    view.disableAutoRange(view.YAxis)
+    if ind == 1:
+        view.setXLink(plot_items[0].getViewBox())
+
+def get_plot_by_name(name, ind=None) -> pg.PlotDataItem:
+    if ind is not None:
+        return plot_items[ind].items[ [ item.name() for item in plot_items[ind].items ].index(name) ]
+    for plot_item in plot_items:
+        names = [ item.name() for item in plot_item.items ] 
+        if name in names:
+            return plot_item.items[ names.index(name) ]
+    raise LookupError
+
+def get_plot_item_by_plot(plot) -> pg.PlotItem:
+    for plot_item in plot_items:
+        if plot in plot_item.items:
+            return plot_item
+    raise LookupError
 
 def load_data(path, mzi_smoothing_sigma=5):
     global mzi_data, transmission_data, time, sample_rate
@@ -112,45 +154,6 @@ def crop(time_start=0.0, time_end=0.0):
 crop_params = interact(crop, parent=initialization_params)
 initialization_params.sigActivated.connect(crop_params.activate)
 
-sub_mzi = plot_widget.addLayout()
-sub_mzi.addLabel('MZI')
-sub_mzi.nextRow()
-
-plot_items = [pg.PlotItem(), pg.PlotItem()]
-sub_mzi.addItem(plot_items[0])
-
-plot_widget.nextRow()
-
-sub_trans = plot_widget.addLayout()
-sub_trans.addLabel('Transmission')
-sub_trans.nextRow()
-sub_trans.addItem(plot_items[1])
-
-for ind, plot_item in enumerate(plot_items):
-    view: pg.ViewBox = plot_item.getViewBox()
-    view.setMouseEnabled(y=False)
-#    view.setMouseMode(view.RectMode)
-    plot_item.setDownsampling(auto=True, mode='peak')
-    plot_item.setClipToView(True)
-    view.disableAutoRange(view.YAxis)
-    if ind == 1:
-        view.setXLink(plot_items[0].getViewBox())
-
-def get_plot_by_name(name, ind=None) -> pg.PlotDataItem:
-    if ind is not None:
-        return plot_items[ind].items[ [ item.name() for item in plot_items[ind].items ].index(name) ]
-    for plot_item in plot_items:
-        names = [ item.name() for item in plot_item.items ] 
-        if name in names:
-            return plot_item.items[ names.index(name) ]
-    raise LookupError
-
-def get_plot_item_by_plot(plot) -> pg.PlotItem:
-    for plot_item in plot_items:
-        if plot in plot_item.items:
-            return plot_item
-    raise LookupError
-
 @interactor.decorate(ignores=['wlen_in_bw'])
 def find_mzi_peaks(prominence=0.0, wlen_in_bw=400.0, distance_in_bw=3 / 4):
     global plot_items, mzi_peak_times
@@ -188,6 +191,8 @@ def find_mzi_peaks(prominence=0.0, wlen_in_bw=400.0, distance_in_bw=3 / 4):
         plot_items[0].addItem(
             pg.PlotDataItem((mzi_peak_times[1:] + mzi_peak_times[:-1]) / 2, norm(1 / np.diff(mzi_peak_times)), name='mzi_peak_freq', pen=pg.mkPen('r'))
         )
+#find_mzi_peaks_params = interact(find_mzi_peaks, parent=initialization_params, ignores=['wlen_in_bw'])
+#initialization_params.sigActivated.connect(find_mzi_peaks_params.activate)
 
 class FrequencyAxis(pg.AxisItem):
     def __init__(self, time, freq, **kwargs):
@@ -287,14 +292,14 @@ def find_frequency_from_mzi(fname='./mzi_calibration_all.npz'):
         plot_item.setDownsampling(auto=True, mode='peak')
         plot_item.setClipToView(True)
 
-@interactor.decorate()
+@interactor_resonance.decorate()
 def smooth_transmission(sigma=5):
     item = get_plot_by_name('transmission')
     time_data, data = item.getOriginalDataset()
     smoothed_data = gaussian_filter1d(data, sigma)
     item.setData(x=time_data, y=smoothed_data)
 
-@interactor.decorate()
+@interactor_resonance.decorate()
 def find_transmission_peaks(prominence=0.001, wlen_in_bw=1, distance_in_bw=0.1, Q_min=1e5, fsr=res_fsr, find_fits=False):
     global plot_items, transmission_peaks_freq, transmission_peaks_Q, resonance_info, res_fsr
     res_fsr = fsr
@@ -459,7 +464,7 @@ def refine_transmission_peaks(item, freq, peak_data, samples_per_resonance):
     return pd.DataFrame.from_dict(resonances, orient='columns')
     #return np.array(new_peaks), np.array(peak_omega), np.array(peak_q)
 
-@interactor.decorate()
+@interactor_resonance.decorate()
 def dump_results(fname=''):
     np.savez(
         fname,
