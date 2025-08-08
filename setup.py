@@ -4,6 +4,7 @@ setup(
     name='mzitool',
     packages=['mzitool'],
     version="0.1.0",
+    include_package_data=True,
 #    install_requires=[],
 #    entry_points = {
 #        'console_scripts': ['my_script=mzitool.main:*'],

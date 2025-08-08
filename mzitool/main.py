@@ -3,13 +3,12 @@ TODO: double check that mzi_peak_freqs plot gets removed at some point
 '''
 import pandas as pd
 import numpy as np
-from pathlib import Path
 import pyqtgraph as pg
 import scipy.io
 from scipy.ndimage import gaussian_filter1d
 from scipy.signal import find_peaks
 from scipy.optimize import curve_fit
-from PyQt6.QtWidgets import QWidget, QSplitter
+from PyQt6.QtWidgets import QWidget, QSplitter, QFileDialog
 from PyQt6.QtGui import QPen, QColor
 from pyqtgraph.parametertree import (
     Parameter, 
@@ -18,6 +17,9 @@ from pyqtgraph.parametertree import (
     Interactor,
     interact
 )
+
+import os.path
+mzi_calib_path = os.path.join(os.path.dirname(__file__), 'mzi_calibration_all.npz')
 
 app = pg.mkQApp('Test')
 plot_widget = pg.GraphicsLayoutWidget()
@@ -105,8 +107,8 @@ def get_plot_item_by_plot(plot) -> pg.PlotItem:
             return plot_item
     raise LookupError
 
-def load_data(path, mzi_smoothing_sigma=5):
-    global mzi_data, transmission_data, time, sample_rate
+def load_data(path, mzi_smoothing_sigma=5, darkpoint=0):
+    global mzi_data, transmission_data, mzi_data, time, sample_rate
     data_mat = scipy.io.loadmat(path)
 
     mzi = data_mat['mzi'][0]
@@ -114,9 +116,8 @@ def load_data(path, mzi_smoothing_sigma=5):
 
     mzi_data = norm(gaussian_filter1d(mzi[good_data], mzi_smoothing_sigma))
 
-    transmission_data = data_mat['transmission'][0][good_data]
+    transmission_data = data_mat['transmission'][0][good_data] - darkpoint
     transmission_data /= np.max(transmission_data)
-#    print(np.min(transmission_data))
     time = data_mat['Tinterval'][0][0] * np.arange(len(mzi))[good_data] + data_mat['Tstart'][0][0]
     sample_rate = len(time) / np.ptp(time)
 
@@ -130,13 +131,13 @@ def load_data(path, mzi_smoothing_sigma=5):
         pg.PlotDataItem(x=time, y=transmission_data, name='transmission')
     )
 
-def initialize(laser_velocity_nms=1e9*velocity, start_wavelength_nm=1e9*start_wl, mzi_bandwidth_hz=mzi_bw, mzi_smoothing_sigma=5):
+def initialize(laser_velocity_nms=1e9*velocity, start_wavelength_nm=1e9*start_wl, mzi_bandwidth_hz=mzi_bw, mzi_smoothing_sigma=5, darkpoint=0.0):
     global velocity, start_wl, mzi_bw
     assert file_in.value() is not None, 'Must select input file to initialize'
     velocity = laser_velocity_nms * 1e-9
     start_wl = start_wavelength_nm * 1e-9
     mzi_bw = mzi_bandwidth_hz
-    load_data(file_in.value(), mzi_smoothing_sigma)
+    load_data(file_in.value(), mzi_smoothing_sigma, darkpoint)
 initialization_params = interact(initialize, parent=params)
 
 def crop(time_start=0.0, time_end=0.0):
@@ -191,8 +192,6 @@ def find_mzi_peaks(prominence=0.0, wlen_in_bw=400.0, distance_in_bw=3 / 4):
         plot_items[0].addItem(
             pg.PlotDataItem((mzi_peak_times[1:] + mzi_peak_times[:-1]) / 2, norm(1 / np.diff(mzi_peak_times)), name='mzi_peak_freq', pen=pg.mkPen('r'))
         )
-#find_mzi_peaks_params = interact(find_mzi_peaks, parent=initialization_params, ignores=['wlen_in_bw'])
-#initialization_params.sigActivated.connect(find_mzi_peaks_params.activate)
 
 class FrequencyAxis(pg.AxisItem):
     def __init__(self, time, freq, **kwargs):
@@ -248,9 +247,9 @@ class FrequencyAxis(pg.AxisItem):
         return fit
 
 @interactor.decorate()
-def find_frequency_from_mzi(fname='./mzi_calibration_all.npz'):
+def find_frequency_from_mzi():
     global plot_items, mzi_peak_freq
-    coefs = np.load(fname)['mzi_fit_coefficients']
+    coefs = np.load(mzi_calib_path)['mzi_fit_coefficients']
     mode_to_freq = np.poly1d(coefs)
     roots = (mode_to_freq - c / start_wl).roots
     roots = roots[np.isreal(roots)].real
@@ -291,6 +290,29 @@ def find_frequency_from_mzi(fname='./mzi_calibration_all.npz'):
         plot_item.layout.addItem(axis,1,1)
         plot_item.setDownsampling(auto=True, mode='peak')
         plot_item.setClipToView(True)
+
+@interactor.decorate()
+def save_with_calibrated_frequency(include_mzi=False):
+    file_dialog = QFileDialog()
+    file_dialog.setAcceptMode( QFileDialog.AcceptMode.AcceptSave )
+    file_dialog.setNameFilter("Matlab Files (*.mat)")
+
+    if file_dialog.exec():
+        selected = file_dialog.selectedFiles()[0]
+        mask = (time > min(mzi_peak_times)) & (time < max(mzi_peak_times))
+        frequencies = np.interp(time[mask], mzi_peak_times, mzi_peak_freq)
+
+        data_out = {
+            'frequency': frequencies,
+            'transmission': transmission_data[mask],
+            'time_start': time[0],
+            'time_step': time[1] - time[0]
+        }
+
+        if include_mzi:
+            data_out['mzi'] = mzi_data[mask]
+
+        scipy.io.savemat(selected, data_out)
 
 @interactor_resonance.decorate()
 def smooth_transmission(sigma=5):
