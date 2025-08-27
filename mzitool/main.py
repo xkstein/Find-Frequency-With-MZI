@@ -202,7 +202,7 @@ class FrequencyAxis(pg.AxisItem):
         self.wl_scale = -np.ptp(c / freq) / np.ptp(time)
         self.func = self.make_fit(time[::100], 1e9 * c / freq[::100])
 #        self.func = np.poly1d(np.polyfit(time[::100], 1e9 * c / freq[::100], 4))
-        np.savez('temp.npz', time=time[::100], freq=freq[::100])
+#        np.savez('temp.npz', time=time[::100], freq=freq[::100])
         self.initial_wavelength = c / freq[0]
         super().__init__(**kwargs)
 
