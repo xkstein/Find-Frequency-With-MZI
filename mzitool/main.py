@@ -303,7 +303,7 @@ def save_with_calibrated_frequency(include_mzi=False):
         frequencies = np.interp(time[mask], mzi_peak_times, mzi_peak_freq)
 
         data_out = {
-            'frequency': frequencies,
+            'frequency': frequencies.astype(np.float32),
             'transmission': transmission_data[mask],
             'time_start': time[0],
             'time_step': time[1] - time[0]
