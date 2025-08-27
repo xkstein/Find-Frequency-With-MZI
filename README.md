@@ -11,6 +11,4 @@ Then run `pip install -e .` and you can launch the application with `python -m m
 (or just enter `mzitool/` and run `python main.py`)
 
 # TODO
-+ Reduce saved frequency to np.float32
-+ Add darkpoint (and maybe reduce transmission to int16)
 + Work on Q finding stuff
